@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Image Styler — Executable</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      background: #111;
+      color: white;
+      padding: 20px;
+    }
+    .card {
+      background: rgba(34,34,34,0.95);
+      padding: 18px;
+      border-radius: 12px;
+      text-align: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      width: 100%;
+      max-width: 980px;
+    }
+    h1 { margin: 6px 0 14px; font-size: 20px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-bottom:12px; }
+    input, select, button { padding:10px; border-radius:8px; border:none; cursor:pointer; }
+    button { background:#ff4d6d; color:white; }
+    button.secondary { background:#333; }
+    #canvas { display:block; margin:12px auto; max-width:100%; border-radius:8px; background:#fff; }
+    .share { margin-top:12px; }
+    .share button { margin:5px; background:#333; color:#fff; padding:8px 12px; border-radius:6px; }
+    small { color:#bbb; display:block; margin-top:6px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🎨 Image Styler — Now Executable</h1>
+
+    <div class="row">
+      <input id="fileInput" type="file" accept="image/*" />
+      <select id="styleSelect">
+        <option value="original">Original</option>
+        <option value="grayscale">Grayscale</option>
+        <option value="invert">Invert</option>
+        <option value="sepia">Sepia</option>
+        <option value="brighten">Brighten</option>
+        <option value="darken">Darken</option>
+        <option value="cartoon">Cartoon</option>
+        <option value="sketch">Sketch</option>
+        <option value="contrast">Contrast</option>
+        <option value="posterize">Posterize</option>
+        <option value="sharpen">Sharpen</option>
+        <option value="glitch">Glitch</option>
+        <option value="heatmap">Heatmap</option>
+        <option value="vignette">Vignette</option>
+        <option value="sobel">Sobel Edge</option>
+        <option value="swirl">Swirl Effect</option>
+
+        <!-- New art styles -->
+        <option value="oil">Oil Painting</option>
+        <option value="watercolor">Watercolor</option>
+        <option value="acrylic">Acrylic</option>
+        <option value="ink">Ink Drawing</option>
+        <option value="pencil">Pencil Sketch</option>
+        <option value="charcoal">Charcoal</option>
+        <option value="pastel">Pastel</option>
+        <option value="gouache">Gouache</option>
+        <option value="pointillism">Pointillism</option>
+        <option value="impressionism">Impressionism</option>
+        <option value="cubism">Cubism</option>
+        <option value="expressionism">Expressionism</option>
+        <option value="surrealism">Surrealism</option>
+        <option value="popart">Pop Art</option>
+        <option value="minimalism">Minimalism</option>
+        <option value="realism">Realism</option>
+        <option value="hyperrealism">Hyperrealism</option>
+        <option value="abstract">Abstract</option>
+        <option value="lineart">Line Art</option>
+        <option value="stainedglass">Stained Glass</option>
+      </select>
+
+      <button id="applyBtn">Apply</button>
+      <button id="downloadBtn" class="secondary">Save</button>
+    </div>
+
+    <canvas id="canvas"></canvas>
+    <small>Tip: for best results use small/medium images. Large images are scaled down automatically.</small>
+
+    <div class="share">
+      <h3>🔗 Share</h3>
+      <button onclick="shareTo('whatsapp')">WhatsApp</button>
+      <button onclick="shareTo('twitter')">Twitter</button>
+      <button onclick="shareTo('instagram')">Instagram</button>
+      <button onclick="shareTo('facebook')">Facebook</button>
+    </div>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const styleSelect = document.getElementById('styleSelect');
+    const applyBtn = document.getElementById('applyBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    let originalImg = null;
+    const MAX_DIM = 1600; // scale big images down to avoid freezes
+
+    // Helpers
+    function clamp(v,min=0,max=255){ return Math.max(min, Math.min(max, v)); }
+    function resetCanvasToImage() {
+      ctx.filter = 'none';
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(originalImg, 0, 0, canvas.width, canvas.height);
+    }
+    function getImageData(){ return ctx.getImageData(0,0,canvas.width,canvas.height); }
+    function putImageData(imgData){ ctx.putImageData(imgData,0,0); }
+
+    // Convolution (3x3 kernel)
+    function convolution(imgData, kernel, divisor = 1, bias = 0) {
+      const w = imgData.width, h = imgData.height;
+      const src = imgData.data;
+      const dst = new Uint8ClampedArray(src.length);
+      const k = kernel;
+      for (let y=0; y<h; y++){
+        for (let x=0; x<w; x++){
+          let r=0,g=0,b=0;
+          for (let ky=-1; ky<=1; ky++){
+            for (let kx=-1; kx<=1; kx++){
+              const ix = clamp(x + kx, 0, w-1);
+              const iy = clamp(y + ky, 0, h-1);
+              const i = (iy * w + ix) * 4;
+              const kval = k[(ky+1)*3 + (kx+1)];
+              r += src[i] * kval;
+              g += src[i+1] * kval;
+              b += src[i+2] * kval;
+            }
+          }
+          const idx = (y * w + x) * 4;
+          dst[idx]   = clamp((r/divisor) + bias);
+          dst[idx+1] = clamp((g/divisor) + bias);
+          dst[idx+2] = clamp((b/divisor) + bias);
+          dst[idx+3] = src[idx+3];
+        }
+      }
+      imgData.data.set(dst);
+      return imgData;
+    }
+
+    // Sobel edge detector (grayscale result)
+    function sobelFilter(imgData) {
+      const w = imgData.width, h = imgData.height;
+      const src = imgData.data;
+      const dst = new Uint8ClampedArray(src.length);
+      const gx = [-1,0,1,-2,0,2,-1,0,1];
+      const gy = [-1,-2,-1,0,0,0,1,2,1];
+      for (let y=0;y<h;y++){
+        for (let x=0;x<w;x++){
+          let sx=0, sy=0;
+          for (let ky=-1; ky<=1; ky++){
+            for (let kx=-1; kx<=1; kx++){
+              const ix = clamp(x + kx, 0, w-1);
+              const iy = clamp(y + ky, 0, h-1);
+              const i = (iy * w + ix) * 4;
+              const gray = (src[i] + src[i+1] + src[i+2]) / 3;
+              const kvalx = gx[(ky+1)*3 + (kx+1)];
+              const kvaly = gy[(ky+1)*3 + (kx+1)];
+              sx += gray * kvalx;
+              sy += gray * kvaly;
+            }
+          }
+          const mag = clamp(Math.sqrt(sx*sx + sy*sy));
+          const idx = (y*w + x)*4;
+          dst[idx] = dst[idx+1] = dst[idx+2] = mag > 80 ? 255 : 0; // threshold
+          dst[idx+3] = src[idx+3];
+        }
+      }
+      imgData.data.set(dst);
+      return imgData;
+    }
+
+    // Posterize
+    function posterize(imgData, levels=4){
+      const step = Math.floor(256/levels);
+      const d = imgData.data;
+      for (let i=0;i<d.length;i+=4){
+        d[i]   = Math.floor(d[i]/step)*step;
+        d[i+1] = Math.floor(d[i+1]/step)*step;
+        d[i+2] = Math.floor(d[i+2]/step)*step;
+      }
+      return imgData;
+    }
+
+    // HSL to RGB (for heatmap)
+    function hslToRgb(h, s, l){
+      // h in [0,360], s,l in [0,1]
+      s = Math.max(0, Math.min(1, s));
+      l = Math.max(0, Math.min(1, l));
+      const c = (1 - Math.abs(2*l - 1)) * s;
+      const hp = h / 60;
+      const x = c * (1 - Math.abs((hp % 2) - 1));
+      let r=0,g=0,b=0;
+      if (hp >= 0 && hp < 1){ r=c; g=x; b=0; }
+      else if (hp < 2){ r=x; g=c; b=0; }
+      else if (hp < 3){ r=0; g=c; b=x; }
+      else if (hp < 4){ r=0; g=x; b=c; }
+      else if (hp < 5){ r=x; g=0; b=c; }
+      else { r=c; g=0; b=x; }
+      const m = l - c/2;
+      return [ Math.round((r+m)*255), Math.round((g+m)*255), Math.round((b+m)*255) ];
+    }
+
+    // Swirl transformation (moderate strength)
+    function swirlEffect(imgData, strength=0.0008) {
+      const w = imgData.width, h = imgData.height;
+      const src = imgData.data;
+      const dst = new Uint8ClampedArray(src.length);
+      const cx = w/2, cy = h/2;
+      const radius = Math.min(cx, cy);
+      for (let y=0;y<h;y++){
+        for (let x=0;x<w;x++){
+          const dx = x - cx;
+          const dy = y - cy;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          let srcX = x, srcY = y;
+          if (dist < radius){
+            const angle = strength * (radius - dist);
+            const cosA = Math.cos(angle);
+            const sinA = Math.sin(angle);
+            srcX = Math.floor(cx + dx * cosA - dy * sinA);
+            srcY = Math.floor(cy + dx * sinA + dy * cosA);
+            if (srcX < 0) srcX = 0;
+            if (srcX >= w) srcX = w-1;
+            if (srcY < 0) srcY = 0;
+            if (srcY >= h) srcY = h-1;
+          }
+          const sIdx = (srcY*w + srcX)*4;
+          const dIdx = (y*w + x)*4;
+          dst[dIdx] = src[sIdx];
+          dst[dIdx+1] = src[sIdx+1];
+          dst[dIdx+2] = src[sIdx+2];
+          dst[dIdx+3] = src[sIdx+3];
+        }
+      }
+      imgData.data.set(dst);
+      return imgData;
+    }
+
+    // Load image from input
+    fileInput.addEventListener('change', e=>{
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const img = new Image();
+        img.onload = () => {
+          // scale image down if too large
+          let w = img.width, h = img.height;
+          if (Math.max(w,h) > MAX_DIM) {
+            const scale = MAX_DIM / Math.max(w,h);
+            w = Math.round(w * scale);
+            h = Math.round(h * scale);
+          }
+          canvas.width = w;
+          canvas.height = h;
+          originalImg = document.createElement('canvas');
+          originalImg.width = w;
+          originalImg.height = h;
+          const tctx = originalImg.getContext('2d');
+          tctx.drawImage(img, 0, 0, w, h);
+          // create an Image object from canvas to draw quickly
+          const dataURL = originalImg.toDataURL();
+          const finalImg = new Image();
+          finalImg.onload = () => {
+            originalImg = finalImg;
+            resetCanvasToImage();
+          };
+          finalImg.src = dataURL;
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // Apply button
+    applyBtn.addEventListener('click', () => {
+      try {
+        applyBtn.disabled = true;
+        applyBtn.textContent = 'Applying...';
+        setTimeout(()=> { // small pause so UI updates
+          applyFilter(styleSelect.value);
+          applyBtn.disabled = false;
+          applyBtn.textContent = 'Apply';
+        }, 20);
+      } catch (err) {
+        console.error(err);
+        applyBtn.disabled = false;
+        applyBtn.textContent = 'Apply';
+      }
+    });
+
+    // Main filter switch
+    function applyFilter(type) {
+      if (!originalImg) return alert('Please load an image first.');
+      resetCanvasToImage();
+
+      // Many effects either draw with ctx.filter or manipulate pixel data.
+      if ([
+        'oil','watercolor','acrylic','pastel','gouache',
+        'impressionism','cubism','expressionism','surrealism',
+        'popart','minimalism','realism','hyperrealism','abstract',
+      ].includes(type)) {
+        // fast approximations using CSS filters + posterize for painterly looks
+        switch(type) {
+          case 'oil':
+            ctx.filter = 'saturate(130%) contrast(115%)';
+            ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+            // light posterize
+            let id1 = getImageData();
+            posterize(id1,6);
+            putImageData(id1);
+            break;
+          case 'watercolor':
+            ctx.filter = 'saturate(120%) blur(1.4px) contrast(105%)';
+            ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+            // soften edges by light blur again
+            break;
+          case 'acrylic':
+            ctx.filter = 'saturate(140%) contrast(120%)';
+            ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+            break;
+          case 'pastel':
+            ctx.filter = 'saturate(150%) blur(0.9px) brightness(105%)';
+            ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+            break;
+          case 'gouache':
+            ctx.filter = 'contrast(120%) saturate(120%)';
+            ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+            let idg = getImageData();
+            posterize(idg,8);
+            putImageData(idg);
+            break;
+          case 'impressionism':
+            ctx.filter = 'blur(1.2px) saturate(140%)';
+            ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+            break;
+          case 'cubism':
+            // blockify + contrast
+            ctx.filter = 'contrast(140%) saturate(110%)';
+            ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+            const block = getImageData();
+            // small mosaic
+            const bw = block.width, bh = block.height;
+            const s = Math.max(6, Math.round(Math.min(bw,bh)/60));
+            for (let yy=0; yy<bh; yy+=s){
+              for (let xx=0; xx<bw; xx+=s){
+                const i = (yy*bw + xx) * 4;
+                const r = block.data[i], g = block.data[i+1], b = block.data[i+2];
+                for (let y2=yy; y2<yy+s && y2<bh; y2++){
+                  for(let x2=xx; x2<xx+s && x2<bw; x2++){
+                    const idx = (y2*bw + x2)*4;
+                    block.data[idx]=r; block.data[idx+1]=g; block.data[idx+2]=b;
+                  }
+                }
+              }
+            }
+            putImageData(block);
+            break;
+          case 'expressionism':
+            ctx.filter = 'contrast(180%) saturate(170%) hue-rotate(15deg)';
+            ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+            break;
+          case 'surrealism':
+            ctx.filter = 'hue-rotate(200deg) contrast(120%) saturate(120%)';
+            ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+            break;
+          case 'popart':
+            ctx.filter = 'contrast(220%) saturate(220%)';
+            ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+            // heavy posterize
+            let pop = getImageData();
+            posterize(pop,5);
+            putImageData(pop);
+            break;
+          case 'minimalism':
+            ctx.filter = 'grayscale(100%) contrast(140%)';
+            ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+            break;
+          case 'realism':
+            ctx.filter = 'contrast(110%) saturate(110%)';
+            ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+            break;
+          case 'hyperrealism':
+            // sharpen (convolution) after slight saturate
+            ctx.filter = 'saturate(120%)';
+            ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+            ctx.filter = 'none';
+            let hi = getImageData();
+            convolution(hi, [0,-1,0,-1,5,-1,0,-1,0]);
+            putImageData(hi);
+            break;
+          case 'abstract':
+            ctx.filter = 'hue-rotate(90deg) contrast(140%) saturate(160%)';
+            ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+            break;
+        }
+        ctx.filter = 'none';
+        return;
+      }
+
+      // For everything else, start from original raster
+      resetCanvasToImage();
+
+      if (type === 'original') return;
+
+      // Pixel-access effects
+      let imgData = getImageData();
+      let d = imgData.data;
+
+      switch(type){
+        case 'grayscale':
+          for (let i=0;i<d.length;i+=4){
+            const v = Math.round((d[i]+d[i+1]+d[i+2])/3);
+            d[i]=d[i+1]=d[i+2]=v;
+          }
+          putImageData(imgData);
+          break;
+
+        case 'invert':
+          for (let i=0;i<d.length;i+=4){
+            d[i]=255-d[i]; d[i+1]=255-d[i+1]; d[i+2]=255-d[i+2];
+          }
+          putImageData(imgData);
+          break;
+
+        case 'sepia':
+          for (let i=0;i<d.length;i+=4){
+            const r=d[i], g=d[i+1], b=d[i+2];
+            d[i]   = clamp(Math.round(0.393*r + 0.769*g + 0.189*b));
+            d[i+1] = clamp(Math.round(0.349*r + 0.686*g + 0.168*b));
+            d[i+2] = clamp(Math.round(0.272*r + 0.534*g + 0.131*b));
+          }
+          putImageData(imgData);
+          break;
+
+        case 'brighten':
+          for (let i=0;i<d.length;i+=4){
+            d[i]=clamp(d[i]+40); d[i+1]=clamp(d[i+1]+40); d[i+2]=clamp(d[i+2]+40);
+          }
+          putImageData(imgData);
+          break;
+
+        case 'darken':
+          for (let i=0;i<d.length;i+=4){
+            d[i]=clamp(d[i]-40); d[i+1]=clamp(d[i+1]-40); d[i+2]=clamp(d[i+2]-40);
+          }
+          putImageData(imgData);
+          break;
+
+        case 'cartoon':
+          // posterize + edge overlay
+          posterize(imgData, 5);
+          putImageData(imgData);
+          // edge
+          let edges = getImageData();
+          edges = sobelFilter(edges);
+          // darken edges over posterized image
+          const e = edges.data;
+          const base = getImageData().data;
+          for (let i=0;i<e.length;i+=4){
+            if (e[i] === 255){ // edge
+              base[i]=base[i+1]=base[i+2]=0;
+            }
+          }
+          putImageData(new ImageData(base, canvas.width, canvas.height));
+          break;
+
+        case 'sketch':
+          // grayscale + invert + blur-like effect emulated by light posterize threshold
+          for (let i=0;i<d.length;i+=4){
+            const gray = (d[i]+d[i+1]+d[i+2])/3;
+            const v = gray > 128 ? 255 : 0;
+            d[i]=d[i+1]=d[i+2]=v;
+          }
+          putImageData(imgData);
+          break;
+
+        case 'contrast':
+          {
+            const factor = (259 * (128 + 255)) / (255 * (259 - 128));
+            for (let i=0;i<d.length;i+=4){
+              d[i]   = clamp(Math.round(factor * (d[i]-128) + 128));
+              d[i+1] = clamp(Math.round(factor * (d[i+1]-128) + 128));
+              d[i+2] = clamp(Math.round(factor * (d[i+2]-128) + 128));
+            }
+            putImageData(imgData);
+          }
+          break;
+
+        case 'posterize':
+          posterize(imgData, 4);
+          putImageData(imgData);
+          break;
+
+        case 'sharpen':
+          imgData = convolution(imgData, [0,-1,0,-1,5,-1,0,-1,0]);
+          putImageData(imgData);
+          break;
+
+        case 'glitch':
+          // shift random horizontal bands
+          {
+            const w = imgData.width, h = imgData.height;
+            const copy = new Uint8ClampedArray(imgData.data);
+            const bandCount = Math.max(6, Math.round(h / 40));
+            for (let b=0; b<bandCount; b++){
+              const bandHeight = Math.floor(Math.random() * (h / 10)) + 2;
+              const y = Math.floor(Math.random() * (h - bandHeight));
+              const shift = Math.floor((Math.random()-0.5) * (w * 0.2));
+              for (let yy=y; yy<y+bandHeight; yy++){
+                for (let x=0; x<w; x++){
+                  let sx = clamp(x + shift, 0, w-1);
+                  const sIdx = (yy * w + sx) * 4;
+                  const dIdx = (yy * w + x) * 4;
+                  imgData.data[dIdx] = copy[sIdx];
+                  imgData.data[dIdx+1] = copy[sIdx+1];
+                  imgData.data[dIdx+2] = copy[sIdx+2];
+                }
+              }
+            }
+            putImageData(imgData);
+          }
+          break;
+
+        case 'heatmap':
+          for (let i=0;i<d.length;i+=4){
+            const v = (d[i]+d[i+1]+d[i+2]) / 3; // 0-255
+            const hue = (1 - v/255) * 240; // 240 (blue) -> 0 (red)
+            const rgb = hslToRgb(hue, 1, 0.5);
+            d[i]=rgb[0]; d[i+1]=rgb[1]; d[i+2]=rgb[2];
+          }
+          putImageData(imgData);
+          break;
+
+        case 'vignette':
+          {
+            const cx = canvas.width/2, cy = canvas.height/2;
+            const maxDist = Math.sqrt(cx*cx + cy*cy);
+            for (let y=0;y<canvas.height;y++){
+              for (let x=0;x<canvas.width;x++){
+                const idx = (y*canvas.width + x)*4;
+                const dx = x - cx, dy = y - cy;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                const factor = 1 - Math.pow(dist / maxDist, 1.3); // stronger falloff
+                d[idx]   = Math.round(d[idx] * factor);
+                d[idx+1] = Math.round(d[idx+1] * factor);
+                d[idx+2] = Math.round(d[idx+2] * factor);
+              }
+            }
+            putImageData(imgData);
+          }
+          break;
+
+        case 'sobel':
+          imgData = sobelFilter(imgData);
+          putImageData(imgData);
+          break;
+
+        case 'swirl':
+          imgData = getImageData();
+          imgData = swirlEffect(imgData, Math.max(0.0006, 0.0008 * (Math.min(canvas.width, canvas.height)/600)));
+          putImageData(imgData);
+          break;
+
+        // Art-specific pixel effects (pointillism, lineart, ink/pencil/charcoal)
+        case 'ink':
+          for (let i=0;i<d.length;i+=4){
+            const avg = (d[i]+d[i+1]+d[i+2])/3;
+            const val = avg > 160 ? 255 : 0; // invert like black ink lines on white
+            d[i]=d[i+1]=d[i+2]=val;
+          }
+          putImageData(imgData);
+          break;
+
+        case 'pencil':
+          for (let i=0;i<d.length;i+=4){
+            const gray = Math.round((d[i]+d[i+1]+d[i+2]) / 3);
+            // slight contrast for sketchy look
+            d[i]=d[i+1]=d[i+2] = clamp(Math.round((gray - 128) * 0.9 + 128));
+          }
+          putImageData(imgData);
+          break;
+
+        case 'charcoal':
+          for (let i=0;i<d.length;i+=4){
+            const gray = (d[i]+d[i+1]+d[i+2])/3;
+            const v = gray > 120 ? 255 : 0;
+            d[i]=d[i+1]=d[i+2]=v;
+          }
+          putImageData(imgData);
+          break;
+
+        case 'pastel':
+          // use saturate + light blur (use ctx.filter path)
+          ctx.filter = 'saturate(160%) blur(0.8px) brightness(105%)';
+          ctx.drawImage(originalImg, 0, 0, canvas.width, canvas.height);
+          ctx.filter = 'none';
+          break;
+
+        case 'gouache':
+          ctx.filter = 'contrast(120%) saturate(120%) brightness(102%)';
+          ctx.drawImage(originalImg, 0, 0, canvas.width, canvas.height);
+          ctx.filter = 'none';
+          break;
+
+        case 'pointillism':
+          {
+            // draw dots sampled from the image
+            // lighten canvas first to white background
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0,0,canvas.width,canvas.height);
+            const src = getImageData();
+            const w = src.width, h = src.height;
+            // number of dots scale with image area (keeps performance reasonable)
+            const area = (w*h);
+            const dots = Math.max(2000, Math.round(area / 900)); // tuned
+            const radius = Math.max(1, Math.round(Math.min(w,h)/200));
+            for (let i=0;i<dots;i++){
+              const x = Math.floor(Math.random()*w);
+              const y = Math.floor(Math.random()*h);
+              const idx = (y*w + x)*4;
+              const r = src.data[idx], g = src.data[idx+1], b = src.data[idx+2];
+              ctx.beginPath();
+              ctx.fillStyle = `rgb(${r},${g},${b})`;
+              ctx.arc(x, y, Math.random()*radius + 0.5, 0, Math.PI*2);
+              ctx.fill();
+            }
+          }
+          break;
+
+        case 'impressionism':
+          ctx.filter = 'blur(1.1px) saturate(150%)';
+          ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+          ctx.filter = 'none';
+          break;
+
+        case 'cubism':
+          // blockify and random recolor blocks (lighter than the earlier cubism)
+          {
+            const w = imgData.width, h = imgData.height;
+            const block = Math.max(5, Math.round(Math.min(w,h)/60));
+            for (let by=0; by<h; by += block){
+              for (let bx=0; bx<w; bx += block){
+                const i = (by*w + bx)*4;
+                const r = d[i], g = d[i+1], b = d[i+2];
+                // small hue shift for cubist effect
+                const shift = Math.floor((Math.random()-0.5)*60);
+                const color = hslToRgb((shift+30) % 360, 0.6, 0.55);
+                for (let yy=by; yy<by+block && yy<h; yy++){
+                  for (let xx=bx; xx<bx+block && xx<w; xx++){
+                    const idx = (yy*w + xx)*4;
+                    d[idx] = color[0]; d[idx+1] = color[1]; d[idx+2] = color[2];
+                  }
+                }
+              }
+            }
+            putImageData(imgData);
+          }
+          break;
+
+        case 'expressionism':
+          // saturate + hue shift
+          ctx.filter = 'saturate(200%) hue-rotate(20deg) contrast(140%)';
+          ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+          ctx.filter='none';
+          break;
+
+        case 'surrealism':
+          ctx.filter = 'hue-rotate(160deg) saturate(140%) contrast(110%)';
+          ctx.drawImage(originalImg,0,0,canvas.width,canvas.height);
+          ctx.filter='none';
+          break;
+
+        case 'popart':
+          // strong posterize + bright colors (handled earlier in block but keep fallback)
+          let popd = posterize(imgData, 5);
+          putImageData(popd);
+          break;
+
+        case 'minimalism':
+          // remove most colors -> keep 1 or 2 colors
+          posterize(imgData, 2);
+          putImageData(imgData);
+          break;
+
+        case 'realism':
+          // small contrast boost
+          for (let i=0;i<d.length;i+=4){
+            d[i]=clamp(Math.round((d[i]-128)*1.06+128));
+            d[i+1]=clamp(Math.round((d[i+1]-128)*1.06+128));
+            d[i+2]=clamp(Math.round((d[i+2]-128)*1.06+128));
+          }
+          putImageData(imgData);
+          break;
+
+        case 'hyperrealism':
+          // sharpen + saturate
+          imgData = convolution(imgData, [0,-1,0,-1,6,-1,0,-1,0]);
+          putImageData(imgData);
+          break;
+
+        case 'abstract':
+          // colorful hue shuffle
+          for (let i=0;i<d.length;i+=4){
+            // rotate channels
+            const r = d[i], g = d[i+1], b = d[i+2];
+            d[i] = g; d[i+1] = b; d[i+2] = r;
+          }
+          putImageData(imgData);
+          break;
+
+        case 'lineart':
+          imgData = sobelFilter(imgData);
+          putImageData(imgData);
+          break;
+
+        case 'stainedglass':
+          // mosaic + black strokes
+          {
+            const w = imgData.width, h = imgData.height;
+            const block = Math.max(6, Math.round(Math.min(w,h)/80));
+            for (let by=0; by<h; by += block){
+              for (let bx=0; bx<w; bx += block){
+                const i = (by*w + bx)*4;
+                const r = d[i], g = d[i+1], b = d[i+2];
+                for (let yy=by; yy<by+block && yy<h; yy++){
+                  for (let xx=bx; xx<bx+block && xx<w; xx++){
+                    const idx = (yy*w + xx)*4;
+                    d[idx]=r; d[idx+1]=g; d[idx+2]=b;
+                  }
+                }
+                // add thin black border around block (two pixels)
+                for (let bx2 = bx; bx2 < Math.min(bx+block,w); bx2++){
+                  const topIdx = (by*w + bx2)*4;
+                  const bottomIdx = ((Math.min(by+block-1,h-1))*w + bx2)*4;
+                  d[topIdx]=d[topIdx+1]=d[topIdx+2]=0;
+                  d[bottomIdx]=d[bottomIdx+1]=d[bottomIdx+2]=0;
+                }
+                for (let by2 = by; by2 < Math.min(by+block,h); by2++){
+                  const leftIdx = (by2*w + bx)*4;
+                  const rightIdx = (by2*w + Math.min(bx+block-1,w-1))*4;
+                  d[leftIdx]=d[leftIdx+1]=d[leftIdx+2]=0;
+                  d[rightIdx]=d[rightIdx+1]=d[rightIdx+2]=0;
+                }
+              }
+            }
+            putImageData(imgData);
+          }
+          break;
+
+        default:
+          console.warn('Unknown effect:', type);
+      }
+    }
+
+    // Download
+    downloadBtn.addEventListener('click', ()=>{
+      if (!originalImg) return alert('Load an image first.');
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = 'styled.png';
+      a.click();
+    });
+
+    // Simple social share (open site)
+    function shareTo(platform){
+      let url = '';
+      if (platform === 'whatsapp') url = 'https://web.whatsapp.com/';
+      if (platform === 'twitter') url = 'https://twitter.com/intent/tweet';
+      if (platform === 'instagram') url = 'https://www.instagram.com/';
+      if (platform === 'facebook') url = 'https://www.facebook.com/';
+      window.open(url, '_blank');
+    }
+
+    // quick console hint
+    console.log('Image Styler ready — load an image and pick a style.');
+  </script>
+</body>
+</html>
